@@ -5,8 +5,8 @@ const fm = @cImport({
 
 const GenerationContext = struct {
     last_length: usize = 0,
-    is_responding: bool = true,
-    failed: bool = false,
+    is_responding: std.atomic.Value(bool) = std.atomic.Value(bool).init(true),
+    failed: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
 };
 
 fn responseCallback(status: c_int, content: [*c]const u8, length: usize, user_info: ?*anyopaque) callconv(.c) void {
@@ -14,8 +14,8 @@ fn responseCallback(status: c_int, content: [*c]const u8, length: usize, user_in
 
     if (status != 0) {
         std.debug.print("Failed to respond (error: {})\n", .{status});
-        ctx.is_responding = false;
-        ctx.failed = true;
+        ctx.failed.store(true, .release);
+        ctx.is_responding.store(false, .release);
         return;
     }
 
@@ -29,7 +29,7 @@ fn responseCallback(status: c_int, content: [*c]const u8, length: usize, user_in
         // content == null signals completion
         const out = std.fs.File.stdout();
         _ = out.write("\n") catch 0;
-        ctx.is_responding = false;
+        ctx.is_responding.store(false, .release);
     }
 }
 
@@ -98,11 +98,11 @@ pub fn main() !void {
     fm.FMLanguageModelSessionResponseStreamIterate(stream, @ptrCast(&ctx), responseCallback);
 
     // Spin until the callback signals completion
-    while (ctx.is_responding) {
+    while (ctx.is_responding.load(.acquire)) {
         std.atomic.spinLoopHint();
     }
 
-    if (ctx.failed) {
+    if (ctx.failed.load(.acquire)) {
         return error.GenerationFailed;
     }
 }
