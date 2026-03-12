@@ -34,6 +34,14 @@ fn responseCallback(status: c_int, content: [*c]const u8, length: usize, user_in
 }
 
 pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var stdin_buf: [4096]u8 = undefined;
+    var stdin_reader = std.fs.File.stdin().reader(&stdin_buf);
+    const stdin = &stdin_reader.interface;
+
     var stdout_buf: [4096]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buf);
     const stdout = &stdout_writer.interface;
@@ -64,12 +72,26 @@ pub fn main() !void {
     );
     defer fm.FMRelease(session);
 
+    // Read prompt from stdin
+    const raw_prompt = try stdin.allocRemaining(allocator, .unlimited);
+    defer allocator.free(raw_prompt);
+    const trimmed = std.mem.trimRight(u8, raw_prompt, &std.ascii.whitespace);
+
+    if (trimmed.len == 0) {
+        try stdout.print("No prompt provided. Pipe text into stdin.\n", .{});
+        try stdout.flush();
+        return;
+    }
+
+    // Create a null-terminated copy for the C API
+    const prompt = try allocator.dupeZ(u8, trimmed);
+    defer allocator.free(prompt);
+
     // Stream a response
-    const prompt = "What is Zig, and why would someone use it instead of C?";
     try stdout.print("> {s}\n\n", .{prompt});
     try stdout.flush();
 
-    const stream = fm.FMLanguageModelSessionStreamResponse(session, prompt, null);
+    const stream = fm.FMLanguageModelSessionStreamResponse(session, prompt.ptr, null);
     defer fm.FMRelease(stream);
 
     var ctx = GenerationContext{};
