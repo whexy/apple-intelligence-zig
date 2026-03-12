@@ -1,0 +1,9 @@
+# Zig
+zig-out/
+.zig-cache/
+
+# Swift
+python-apple-fm-sdk/foundation-models-c/.build/
+
+# Nix
+result
