@@ -15,21 +15,18 @@
       devShells.${system}.default = pkgs.mkShell {
         buildInputs = [
           pkgs.zig
+          pkgs.apple-sdk_26
         ];
 
         shellHook = ''
-          # Nix's mkShell injects its own macOS SDK (14.4) and compiler flags
-          # into the environment. These are incompatible with:
-          #   - Swift 6.2 (requires macOS 26 SDK)
-          #   - Zig's own C compilation (doesn't understand Nix's -fmacro-prefix-map flags)
-          # We clear them so both tools use the system toolchain/SDK.
-          unset SDKROOT
-          unset DEVELOPER_DIR
-          unset MACOSX_DEPLOYMENT_TARGET
-          unset NIX_CFLAGS_COMPILE
-          unset NIX_LDFLAGS
+          # Verify system Swift is available and >= 6.2.
+          # Swift is not provided by Nix — it must come from Apple's Command Line
+          # Tools or Xcode. The Swift compiler requires an SDK whose .swiftinterface
+          # files match its exact version. Nix's apple-sdk_26 (SDK 26.0) was built
+          # with Swift 6.2.0 and is incompatible with the system's Swift 6.2.4 which
+          # ships SDK 26.2. Therefore, the Swift build step must use the system SDK.
+          # Zig only needs C headers + framework stubs, so Nix's SDK 26 is fine for it.
 
-          # Verify system Swift is available and >= 6.2
           if ! command -v swift &> /dev/null; then
             echo "ERROR: swift not found on PATH."
             echo "Install Xcode or Command Line Tools: xcode-select --install"
@@ -46,21 +43,10 @@
             return 1
           fi
 
-          # Verify macOS 26 SDK is available (use /usr/bin/xcrun to bypass Nix wrappers)
-          sdk_path=$(/usr/bin/xcrun --show-sdk-path 2>/dev/null)
-          sdk_version=$(/usr/bin/xcrun --show-sdk-version 2>/dev/null)
-          sdk_major=''${sdk_version%%.*}
-
-          if [ -z "$sdk_major" ] || [ "$sdk_major" -lt 26 ]; then
-            echo "ERROR: macOS 26 SDK required (found SDK version ''${sdk_version:-unknown} at ''${sdk_path:-unknown})"
-            echo "Update Xcode or Command Line Tools to get the macOS 26 SDK"
-            return 1
-          fi
-
           echo "Environment OK:"
-          echo "  Swift:    $swift_version"
-          echo "  SDK:      $sdk_version ($sdk_path)"
-          echo "  Zig:      $(zig version)"
+          echo "  Zig:        $(zig version)"
+          echo "  Nix SDK:    $SDKROOT (for Zig C compilation)"
+          echo "  Swift:      $swift_version (system, uses system SDK)"
           echo ""
           echo "Run ./build.sh to build, or ./build.sh run to build and run."
         '';
